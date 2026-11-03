@@ -1,0 +1,48 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: laravel_app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src:/var/www/html
+      - ./src/storage/logs:/var/www/html/storage/logs
+    env_file:
+      - .env.docker
+    depends_on:
+      oracle:
+        condition: service_healthy
+    networks:
+      - laravel_network
+
+  oracle:
+    image: gvenzl/oracle-xe:21-slim
+    container_name: oracle_xe
+    restart: unless-stopped
+    ports:
+      - "1521:1521"
+    environment:
+      ORACLE_PASSWORD: oracle
+      APP_USER: laravel
+      APP_USER_PASSWORD: laravel_pass
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh"]
+      interval: 30s
+      timeout: 20s
+      retries: 10
+      start_period: 120s
+    networks:
+      - laravel_network
+
+volumes:
+  oracle_data:
+    driver: local
+
+networks:
+  laravel_network:
+    driver: bridge
