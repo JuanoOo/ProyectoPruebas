@@ -4,73 +4,31 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Str;
-use Illuminate\Validation\Rules\Password;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Validation\Rules\Password as PasswordRule;
 
 class PasswordResetController extends Controller
 {
-    // -------------------------------------------------------------------------
-    // HU-03: Forgot Password — show form
-    // -------------------------------------------------------------------------
+    private const GENERIC_REQUEST_STATUS = 'Si el correo existe en nuestro sistema, recibirás un enlace de recuperación en breve.';
 
     public function showForgotForm()
     {
         return view('auth.forgot-password');
     }
 
-    // -------------------------------------------------------------------------
-    // HU-03: Forgot Password — handle submission
-    // -------------------------------------------------------------------------
-
     public function sendResetLink(Request $request)
     {
-        $request->validate([
+        $validated = $request->validate([
             'email' => ['required', 'email'],
         ]);
 
-        $email = strtolower($request->email);
+        Password::sendResetLink([
+            'email' => strtolower($validated['email']),
+        ]);
 
-        // Always show success message to prevent user enumeration
-        $user = User::where('email', $email)->first();
-
-        if ($user) {
-            // Delete any existing token for this email
-            DB::table('password_reset_tokens')->where('email', $email)->delete();
-
-            // Generate secure token
-            $token = Str::random(64);
-
-            DB::table('password_reset_tokens')->insert([
-                'email'      => $email,
-                'token'      => Hash::make($token),
-                'created_at' => now(),
-            ]);
-
-            // Build reset URL
-            $resetUrl = route('password.reset', [
-                'token' => $token,
-                'email' => $email,
-            ]);
-
-            // Log the email (MAIL_MAILER=log)
-            \Illuminate\Support\Facades\Log::info('Password reset link', [
-                'to'  => $email,
-                'url' => $resetUrl,
-            ]);
-
-            // If a real mail driver is configured, send the email
-            // Mail::to($email)->send(new \App\Mail\PasswordResetMail($resetUrl));
-        }
-
-        return back()->with('status', 'Si el correo existe en nuestro sistema, recibirás un enlace de recuperación en breve.');
+        // Keep the response identical for known and unknown email addresses.
+        return back()->with('status', self::GENERIC_REQUEST_STATUS);
     }
-
-    // -------------------------------------------------------------------------
-    // HU-03: Reset Password — show form
-    // -------------------------------------------------------------------------
 
     public function showResetForm(Request $request)
     {
@@ -80,61 +38,35 @@ class PasswordResetController extends Controller
         ]);
     }
 
-    // -------------------------------------------------------------------------
-    // HU-03: Reset Password — handle submission
-    // -------------------------------------------------------------------------
-
     public function resetPassword(Request $request)
     {
-        $request->validate([
-            'email'    => ['required', 'email'],
-            'token'    => ['required', 'string'],
+        $validated = $request->validate([
+            'email' => ['required', 'email'],
+            'token' => ['required', 'string'],
             'password' => [
                 'required',
                 'confirmed',
-                Password::min(8)
-                    ->mixedCase()
-                    ->numbers(),
+                PasswordRule::min(8)->mixedCase()->numbers(),
             ],
         ]);
 
-        $email = strtolower($request->email);
+        $status = Password::reset(
+            [
+                ...$validated,
+                'email' => strtolower($validated['email']),
+            ],
+            function (User $user, string $password): void {
+                $user->forceFill(['password' => $password])->save();
+            },
+        );
 
-        $record = DB::table('password_reset_tokens')
-            ->where('email', $email)
-            ->first();
-
-        if (! $record) {
-            return back()->withErrors(['email' => 'El token de recuperación no es válido o ha expirado.']);
+        if ($status === Password::PASSWORD_RESET) {
+            return redirect()->route('login')
+                ->with('status', 'Tu contraseña ha sido restablecida exitosamente. Ahora puedes iniciar sesión.');
         }
 
-        // HU-03: Token expires in 30 minutes
-        $createdAt = \Carbon\Carbon::parse($record->created_at);
-        if ($createdAt->diffInMinutes(now()) > 30) {
-            DB::table('password_reset_tokens')->where('email', $email)->delete();
-            return back()->withErrors(['email' => 'El token de recuperación ha expirado. Por favor, solicita uno nuevo.']);
-        }
-
-        // Validate token (it's hashed)
-        if (! Hash::check($request->token, $record->token)) {
-            return back()->withErrors(['email' => 'El token de recuperación no es válido o ha expirado.']);
-        }
-
-        // Update password
-        $user = User::where('email', $email)->first();
-
-        if (! $user) {
-            return back()->withErrors(['email' => 'No se encontró ninguna cuenta asociada a ese correo.']);
-        }
-
-        $user->forceFill([
-            'password' => Hash::make($request->password),
-        ])->save();
-
-        // HU-03: Invalidate token after use (single-use)
-        DB::table('password_reset_tokens')->where('email', $email)->delete();
-
-        return redirect()->route('login')
-            ->with('status', 'Tu contraseña ha sido restablecida exitosamente. Ahora puedes iniciar sesión.');
+        return back()->withErrors([
+            'email' => 'El enlace de recuperación no es válido o ha expirado. Solicita uno nuevo.',
+        ]);
     }
 }

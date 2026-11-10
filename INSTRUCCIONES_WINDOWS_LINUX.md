@@ -19,9 +19,9 @@
 |---|---|
 | **HU-01: Registro de usuarios** | Formulario con nombre, correo, contraseña y confirmación. Validaciones obligatorias, correo único insensible a mayúsculas/minúsculas (`strtolower`), contraseña con mínimo 8 caracteres, al menos una mayúscula, una minúscula y un número (`Password::min(8)->mixedCase()->numbers()`). Almacenamiento seguro con hashing `bcrypt`. |
 | **HU-02: Inicio de sesión** | Formulario con validación de campos obligatorios. Mensaje genérico de credenciales incorrectas (no revela cuál campo falló). Redirección automática a `/dashboard` (área privada). Protección contra acceso no autenticado a URLs privadas (redirección a login). |
-| **HU-03: Recuperación de contraseña** | Formulario de solicitud por correo. Mensaje genérico para evitar enumeración de usuarios. Generación de token seguro aleatorio (64 caracteres) cifrado en base de datos. Enlace con expiración de 30 minutos y uso único (se invalida tras el cambio). La contraseña anterior deja de funcionar. El correo se emite en `storage/logs/laravel.log`. |
-| **HU-04: Cierre de sesión** | Opción accesible en el dashboard. Invalida la sesión activa en el servidor y regenera el token CSRF. Redirige al login y bloquea navegación hacia atrás a páginas privadas sin volver a autenticarse. |
-| **HU-05: Control de intentos fallidos** | Máximo 5 intentos fallidos consecutivos por combinación de correo + dirección IP en una ventana de 15 minutos. Bloqueo temporal por 15 minutos con mensaje seguro. Al iniciar sesión exitosamente, el contador se reinicia. |
+| **HU-03: Recuperación de contraseña** | Formulario de solicitud por correo y respuesta genérica. Laravel genera y almacena el token de forma segura, lo envía mediante el mailer configurado y lo invalida después de usarse. Expira a los 30 minutos. Para entrega real se debe configurar un mailer SMTP; `MAIL_MAILER=log` solo escribe el mensaje en `storage/logs/laravel.log`. |
+| **HU-04: Cierre de sesión** | Opción accesible en el dashboard. Invalida la sesión activa en el servidor, regenera el token CSRF, redirige al login y envía cabeceras para impedir que el navegador almacene páginas privadas. |
+| **HU-05: Control de intentos fallidos** | Máximo 5 fallos por combinación de correo + IP. El quinto fallo inicia un bloqueo de 15 minutos; las solicitudes durante ese periodo no incrementan el contador. Un inicio exitoso reinicia el contador de esa combinación. |
 
 ---
 
@@ -169,7 +169,7 @@
 
 5. **Prueba de Bloqueo por Intentos Fallidos (HU-05):**
    - En `/login`, falla la contraseña 5 veces seguidas para `ana@test.local`.
-   - Al sexto intento el sistema bloqueará temporalmente el acceso por 15 minutos para esa cuenta e IP.
+   - En el quinto fallo consecutivo aparecerá el mensaje de bloqueo. Los intentos siguientes quedan bloqueados durante 15 minutos desde ese quinto fallo.
 
 ---
 

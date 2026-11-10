@@ -60,13 +60,6 @@
     <!-- Bootstrap 5 JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-    {{-- Prevent back-button access after logout (HU-04) --}}
-    <script>
-        if (performance.navigation.type === 2) {
-            // User hit back button — check if session is still valid
-            window.location.reload();
-        }
-    </script>
     @stack('scripts')
 </body>
 </html>
