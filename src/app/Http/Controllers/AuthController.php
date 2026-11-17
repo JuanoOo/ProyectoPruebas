@@ -66,18 +66,6 @@ class AuthController extends Controller
         $email = strtolower($request->email);
         $ip    = $request->ip();
 
-        // HU-05: Check if account+IP is locked
-        $maxAttempts  = 5;
-        $decayMinutes = 15;
-
-        $recentAttempts = LoginAttempt::countRecentAttempts($email, $ip, $decayMinutes);
-
-        if ($recentAttempts >= $maxAttempts) {
-            return back()
-                ->withInput($request->only('email'))
-                ->withErrors(['email' => 'Tu cuenta ha sido bloqueada temporalmente. Por favor, inténtalo más tarde.']);
-        }
-
         // Attempt authentication
         if (Auth::attempt(['email' => $email, 'password' => $request->password], $request->boolean('remember'))) {
             // HU-05: Successful login resets counter
@@ -90,6 +78,14 @@ class AuthController extends Controller
 
         // HU-05: Record failed attempt
         LoginAttempt::record($email, $ip);
+
+        $remainingMinutes = LoginAttempt::lockoutMinutesRemaining($email, $ip);
+
+        if ($remainingMinutes > 0) {
+            return back()
+                ->withInput($request->only('email'))
+                ->withErrors(['email' => "Tu cuenta fue bloqueada temporalmente por demasiados intentos fallidos. Espera {$remainingMinutes} min para volver a intentar."]);
+        }
 
         // HU-02: Generic error message (do not reveal which field failed)
         return back()
@@ -117,6 +113,10 @@ class AuthController extends Controller
 
     public function dashboard()
     {
-        return view('dashboard', ['user' => Auth::user()]);
+        return response()->view('dashboard', ['user' => Auth::user()])->withHeaders([
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+            'Expires' => '0',
+        ]);
     }
 }

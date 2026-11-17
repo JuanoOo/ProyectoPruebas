@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class LoginAttempt extends Model
 {
+    public const MAX_ATTEMPTS = 5;
+
+    public const LOCKOUT_MINUTES = 15;
+
     /**
      * The table associated with the model.
      *
@@ -47,6 +51,40 @@ class LoginAttempt extends Model
             ->where('ip_address', $ip)
             ->where('attempted_at', '>=', now()->subMinutes($minutes))
             ->count();
+    }
+
+    /** Remove attempts that can no longer contribute to the lockout window. */
+    public static function pruneExpiredAttempts(string $email, string $ip, int $minutes = self::LOCKOUT_MINUTES): void
+    {
+        static::where('email', strtolower($email))
+            ->where('ip_address', $ip)
+            ->where('attempted_at', '<=', now()->subMinutes($minutes))
+            ->delete();
+    }
+
+    /** Return remaining lockout time, rounded up to a whole minute. */
+    public static function lockoutMinutesRemaining(string $email, string $ip): int
+    {
+        $recentAttempts = static::where('email', strtolower($email))
+            ->where('ip_address', $ip)
+            ->where('attempted_at', '>', now()->subMinutes(self::LOCKOUT_MINUTES))
+            ->orderByDesc('attempted_at')
+            ->limit(self::MAX_ATTEMPTS)
+            ->get(['attempted_at']);
+
+        if ($recentAttempts->count() < self::MAX_ATTEMPTS) {
+            return 0;
+        }
+
+        $lockoutEndsAt = $recentAttempts->first()->attempted_at->copy()->addMinutes(self::LOCKOUT_MINUTES);
+
+        if (now()->gte($lockoutEndsAt)) {
+            return 0;
+        }
+
+        $secondsRemaining = $lockoutEndsAt->getTimestamp() - now()->getTimestamp();
+
+        return max(1, (int) ceil($secondsRemaining / 60));
     }
 
     /**

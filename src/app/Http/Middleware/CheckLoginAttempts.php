@@ -10,16 +10,6 @@ use Symfony\Component\HttpFoundation\Response;
 class CheckLoginAttempts
 {
     /**
-     * Maximum number of failed login attempts allowed.
-     */
-    private int $maxAttempts = 5;
-
-    /**
-     * Lockout window and duration in minutes.
-     */
-    private int $decayMinutes = 15;
-
-    /**
      * Handle an incoming request.
      *
      * Blocks access to the login POST route if the account+IP combination
@@ -34,19 +24,20 @@ class CheckLoginAttempts
         $ip    = $request->ip();
 
         if ($email && $ip) {
-            $attempts = LoginAttempt::countRecentAttempts($email, $ip, $this->decayMinutes);
+            LoginAttempt::pruneExpiredAttempts($email, $ip);
+            $remainingMinutes = LoginAttempt::lockoutMinutesRemaining($email, $ip);
 
-            if ($attempts >= $this->maxAttempts) {
+            if ($remainingMinutes > 0) {
                 if ($request->expectsJson()) {
                     return response()->json([
-                        'message' => 'Too many login attempts. Please try again later.',
+                        'message' => "Demasiados intentos. Espera {$remainingMinutes} min para volver a intentar.",
                     ], Response::HTTP_TOO_MANY_REQUESTS);
                 }
 
                 return redirect()->route('login')
                     ->withInput($request->only('email'))
                     ->withErrors([
-                        'email' => 'Tu cuenta ha sido bloqueada temporalmente por demasiados intentos fallidos. Por favor, inténtalo de nuevo en ' . $this->decayMinutes . ' minutos.',
+                        'email' => "Tu cuenta fue bloqueada temporalmente por demasiados intentos fallidos. Espera {$remainingMinutes} min para volver a intentar.",
                     ]);
             }
         }
